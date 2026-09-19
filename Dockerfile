@@ -46,12 +46,19 @@ COPY --chown=user:user frontend/ ./frontend/
 # Storage needs to be writable
 RUN mkdir -p ./backend/storage ./backend/models
 
-# HF Spaces runs on port 7860
+# HF Spaces expects 7860; Cloud Run injects its own PORT (8080). Defaulting to
+# 7860 and reading $PORT at runtime means one image works on both.
 ENV PORT=7860
 
-# IMPORTANT: you must add your .pt checkpoint into backend/models/best.pt
-# before building, OR upload it as a Space secret + download at startup.
-# See README.md "Deploying to Hugging Face Spaces".
+# Cloud Run's filesystem is an in-memory tmpfs, so uploads and rendered
+# summaries count against the instance's RAM. Keep the cap modest.
+ENV MAX_UPLOAD_MB=100
+
+# The checkpoint is baked into the image (see .dockerignore) so there is no
+# runtime download. Part 2's best_part2.pt is deliberately excluded — BLIP-2
+# needs a ~12 GB download and ~8 GB RAM, which doesn't fit this deployment.
 
 WORKDIR $HOME/app/backend
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Shell form so ${PORT} is expanded at runtime; exec so uvicorn is PID 1 and
+# receives SIGTERM when Cloud Run scales the instance down.
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}

@@ -1,0 +1,30 @@
+# Keep the build context small. Without this, `gcloud run deploy --source .`
+# uploads the venv (4.8 GB), the HF cache (3.2 GB) and the torch wheel (2.3 GB).
+#
+# NOTE: backend/models/best.pt is deliberately NOT excluded — it gets baked
+# into the image so the container has no runtime download step.
+
+backend/venv/
+backend/hf_cache/
+backend/storage/*
+!backend/storage/.gitkeep
+backend/test_output/
+backend/models/best_part2.pt
+
+**/__pycache__/
+**/*.py[cod]
+*.whl
+*.crdownload
+
+.git/
+.gitignore
+.claude/
+
+*.ps1
+HOW_TO_RUN.md
+
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
