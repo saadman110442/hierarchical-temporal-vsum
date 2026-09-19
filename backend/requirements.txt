@@ -1,0 +1,20 @@
+# ---- Core from the training notebook ----
+timm>=0.9,<1.1
+opencv-python-headless>=4.8,<5.0
+pillow>=10.0
+numpy>=1.24,<2.0
+tensorboardX>=2.6
+
+# ---- Part 2 multimodal: CLIP + BLIP-2 feature extraction ----
+# These are lazy-loaded on the first Part 2 request. BLIP-2 is ~12 GB; first
+# run will download it to the HuggingFace cache. Requires a fair bit of RAM
+# on CPU (~8 GB peak). If you only care about Part 1, you can pip-uninstall
+# these three after install to save disk space.
+transformers>=4.40,<5.0
+accelerate>=0.30
+sentencepiece>=0.2
+
+# ---- Web server ----
+fastapi>=0.110,<0.120
+uvicorn[standard]>=0.27,<0.35
+python-multipart>=0.0.9   # needed by FastAPI for file uploads

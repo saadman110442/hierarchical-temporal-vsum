@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.env
+
+# PyTorch / ML weights
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+
+# Downloaded wheels (torch CPU/CUDA wheels are 1-2 GB each)
+*.whl
+*.crdownload
+*.part
+
+# Local storage (user uploads, generated summaries)
+backend/storage/*
+!backend/storage/.gitkeep
+
+# Model files (fetched from GitHub Releases — see README)
+backend/models/*
+!backend/models/.gitkeep
+
+# HuggingFace / timm caches (CLIP + BLIP-2, ~12 GB total)
+backend/hf_cache/
+.cache/
+
+# Test artifacts
+backend/test_output/
+test_output/
+
+# IDE / tooling
+.vscode/
+.idea/
+*.swp
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log

@@ -1,0 +1,2 @@
+# Place your trained checkpoint here as `best.pt`
+# (or set CHECKPOINT_PATH env var to point somewhere else)

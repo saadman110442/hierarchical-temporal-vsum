@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video Summarization — Hierarchical Temporal Modeling, Visual & Multimodal</title>
+    <meta
+        name="description"
+        content="Official project page and live demo of HiT-UNet (visual) and MM-HiT-UNet (CLIP + BLIP-2 multimodal) video summarization."
+    />
+    <meta property="og:title" content="Video Summarization — HiT-UNet & MM-HiT-UNet" />
+    <meta property="og:description" content="Upload any video and compare a visual-only and a vision-language multimodal summarizer side-by-side." />
+    <meta property="og:type" content="website" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+    />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['"Crimson Pro"', 'ui-serif', 'Georgia', 'serif'],
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+                    },
+                    colors: {
+                        ink: { DEFAULT: '#0f172a', soft: '#1e293b', mute: '#475569' },
+                        paper: '#fbfaf7',
+                        rule: '#e7e2d8',
+                        accent: '#7c2d12',  /* deep terracotta — Part 1 */
+                        accent2: '#1d4ed8'  /* indigo — Part 2 */
+                    }
+                }
+            }
+        };
+    </script>
+
+    <style>
+        html { scroll-behavior: smooth; }
+        body {
+            background:
+                radial-gradient(1100px 500px at 85% -10%, #fff4e6 0%, transparent 55%),
+                radial-gradient(900px 450px at -10% 10%, #e8eeff 0%, transparent 55%),
+                #fbfaf7;
+            color: #0f172a;
+            font-family: 'Crimson Pro', Georgia, serif;
+            font-size: 19px;
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+        .ui   { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+        h1, h2, h3 { font-family: 'Crimson Pro', Georgia, serif; letter-spacing: -0.01em; }
+
+        .hr-soft { border-top: 1px solid #e7e2d8; }
+
+        /* Soft cards */
+        .card {
+            background: #ffffffcc;
+            border: 1px solid #e7e2d8;
+            border-radius: 10px;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 1px 0 #ffffff inset, 0 6px 18px -12px rgba(15,23,42,0.15);
+        }
+
+        /* Variant selector — the big part 1/part 2 cards */
+        .variant-card {
+            position: relative;
+            background: #ffffff;
+            border: 1.5px solid #e7e2d8;
+            border-radius: 12px;
+            padding: 20px 22px;
+            text-align: left;
+            transition: all 180ms cubic-bezier(.2,.7,.3,1);
+            cursor: pointer;
+            overflow: hidden;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .variant-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px -14px rgba(15,23,42,0.3); }
+        /* aria-disabled keeps the card interactive (so you can still preview the
+           Part 2 paper contents), but it's visually dimmed and flagged below. */
+        .variant-card[aria-disabled="true"] { opacity: 0.78; }
+
+        .variant-card .ribbon {
+            position: absolute; top: 10px; right: 10px;
+            padding: 2px 8px; border-radius: 999px;
+            font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600;
+            letter-spacing: 0.04em; text-transform: uppercase;
+        }
+
+        .variant-card.active[data-variant="part1"] {
+            border-color: #7c2d12;
+            box-shadow:
+                0 10px 26px -14px rgba(124,45,18,0.45),
+                inset 0 0 0 3px #fff7ed;
+        }
+        .variant-card.active[data-variant="part1"] .ribbon {
+            background: #7c2d12; color: #fff;
+        }
+        .variant-card.active[data-variant="part2"] {
+            border-color: #1d4ed8;
+            box-shadow:
+                0 10px 26px -14px rgba(29,78,216,0.45),
+                inset 0 0 0 3px #eef2ff;
+        }
+        .variant-card.active[data-variant="part2"] .ribbon {
+            background: #1d4ed8; color: #fff;
+        }
+        .variant-card[data-variant="part1"] .ribbon { background: #f5efe3; color: #7c2d12; }
+        .variant-card[data-variant="part2"] .ribbon { background: #eef2ff; color: #1d4ed8; }
+
+        .variant-card .watermark {
+            position: absolute; right: -10px; bottom: -20px;
+            font-family: 'Crimson Pro', serif; font-size: 110px; font-weight: 700;
+            color: #0f172a08; pointer-events: none; line-height: 1;
+        }
+
+        /* Dropzone */
+        .dropzone {
+            border: 2px dashed #d6cfc0;
+            transition: all 160ms ease;
+            background: #ffffffcc;
+        }
+        .dropzone.hover {
+            border-color: #7c2d12;
+            background: #fff7ed;
+            transform: scale(1.005);
+        }
+        .dropzone.variant-part2.hover { border-color: #1d4ed8; background: #eef2ff; }
+
+        /* Progress bar */
+        .bar { height: 6px; background: #e7e2d8; border-radius: 9999px; overflow: hidden; }
+        .bar > div {
+            height: 100%;
+            background: linear-gradient(90deg, #7c2d12, #c2410c);
+            transition: width 300ms ease;
+        }
+        .bar.variant-part2 > div {
+            background: linear-gradient(90deg, #1d4ed8, #4f46e5);
+        }
+
+        /* Stage pills */
+        .stage-pill {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 4px 10px; border-radius: 9999px;
+            font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500;
+            background: #f5efe3; color: #78716c; border: 1px solid #e7e2d8;
+        }
+        .stage-pill.active     { background: #fff7ed; color: #7c2d12; border-color: #fed7aa; }
+        .stage-pill.done       { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+        .variant-part2 .stage-pill.active { background: #eef2ff; color: #1d4ed8; border-color: #c7d2fe; }
+        .stage-pill .dot {
+            width: 6px; height: 6px; border-radius: 9999px; background: currentColor;
+        }
+
+        /* Video card */
+        .video-card video {
+            width: 100%; aspect-ratio: 16/9;
+            background: #0f172a; border-radius: 6px;
+        }
+
+        /* Pipeline diagram pieces */
+        .arrow { font-family: 'JetBrains Mono', monospace; color: #a8a29e; }
+        .pipe-node {
+            font-family: 'JetBrains Mono', monospace;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #e7e2d8;
+            background: #fbfaf7;
+            white-space: nowrap;
+        }
+        .pipe-node.highlight-p1 { border-color: #fed7aa; background: #fff7ed; color: #7c2d12; }
+        .pipe-node.highlight-p2 { border-color: #c7d2fe; background: #eef2ff; color: #1d4ed8; }
+
+        /* BibTeX code block */
+        pre.bibtex {
+            background: #f5efe3;
+            border: 1px solid #e7e2d8;
+            border-radius: 6px;
+            padding: 14px 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; line-height: 1.55;
+            overflow-x: auto;
+            color: #1e293b;
+            white-space: pre;
+        }
+
+        a.link { color: #7c2d12; text-decoration: none; border-bottom: 1px solid #fed7aa; }
+        a.link:hover { border-bottom-color: #7c2d12; }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+            padding: 10px 18px; border-radius: 6px; font-family: 'Inter', sans-serif;
+            font-weight: 500; font-size: 14px; transition: all 120ms ease;
+            border: 1px solid transparent; cursor: pointer;
+        }
+        .btn-primary { background: #0f172a; color: #fbfaf7; }
+        .btn-primary:hover { background: #1e293b; }
+        .btn-ghost { background: transparent; color: #0f172a; border-color: #d6cfc0; }
+        .btn-ghost:hover { background: #f5efe3; }
+        .btn-accent-p2 { background: #1d4ed8; color: white; }
+        .btn-accent-p2:hover { background: #1e40af; }
+
+        /* Captions feed (Part 2 live) */
+        .caption-feed {
+            max-height: 132px; overflow-y: auto;
+            font-family: 'Crimson Pro', serif;
+            font-style: italic;
+            color: #1e293b;
+            border-left: 3px solid #1d4ed8;
+            padding: 6px 14px;
+            background: #f8faff;
+            border-radius: 0 6px 6px 0;
+        }
+        .caption-feed .cap {
+            display: block;
+            opacity: 0;
+            animation: fadeIn 280ms ease forwards;
+        }
+        .caption-feed .cap::before { content: '“'; color: #94a3b8; }
+        .caption-feed .cap::after  { content: '”'; color: #94a3b8; }
+
+        /* Subtle fade for dynamic swaps */
+        .fade-in   { animation: fadeIn 320ms ease both; }
+        .swap-in   { animation: fadeIn 240ms ease both; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+        /* Part 2 visualisation panels */
+        .viz-panel {
+            background: #ffffff;
+            border: 1px solid #e7e2d8;
+            border-radius: 10px;
+            padding: 16px 18px;
+        }
+        .viz-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #1d4ed8;
+            margin-bottom: 8px;
+        }
+        .viz-subtitle {
+            font-family: 'Crimson Pro', serif;
+            font-size: 17px;
+            color: #0f172a;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        .viz-caption {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 10px;
+        }
+
+        /* Word cloud */
+        #wordcloud {
+            display: flex; flex-wrap: wrap; gap: 6px 10px;
+            align-items: baseline;
+            justify-content: center;
+            padding: 12px 6px;
+            min-height: 140px;
+        }
+        #wordcloud .wc {
+            font-family: 'Crimson Pro', serif;
+            color: #1d4ed8;
+            line-height: 1.0;
+            transition: color 140ms ease, transform 140ms ease;
+            cursor: default;
+        }
+        #wordcloud .wc:hover { color: #7c2d12; transform: scale(1.08); }
+
+        /* 2D scatter (inline SVG) */
+        #scatter {
+            width: 100%; height: 260px;
+            background: linear-gradient(180deg, #fbfbff 0%, #fafaff 100%);
+            border-radius: 6px;
+        }
+        #scatter .grid  { stroke: #eef2ff; stroke-width: 1; }
+        #scatter .axis  { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 2,3; }
+        #scatter .pt    { transition: r 140ms ease; }
+        #scatter .pt.selected { stroke: #7c2d12; stroke-width: 1.5; }
+        #scatter .pt.unselected { fill-opacity: 0.55; }
+
+        /* Shot ribbon */
+        #shot-ribbon { width: 100%; height: 80px; }
+        #shot-ribbon .shot-tick { stroke: #e7e2d8; stroke-width: 0.5; }
+        #shot-ribbon .shot-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            fill: #64748b;
+        }
+        #shot-ribbon .caption-tt {
+            font-family: 'Crimson Pro', serif;
+            font-style: italic;
+            font-size: 12px;
+            fill: #1e293b;
+        }
+
+        /* Variant-label chips */
+        .chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 2px 10px; border-radius: 999px;
+            font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500;
+        }
+        .chip-p1 { background: #fff7ed; color: #7c2d12; border: 1px solid #fed7aa; }
+        .chip-p2 { background: #eef2ff; color: #1d4ed8; border: 1px solid #c7d2fe; }
+        .chip .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+
+        /* Device toggle (CPU / GPU) ------------------------------------- */
+        .device-toggle {
+            display: inline-flex;
+            background: #fff;
+            border: 1px solid #e7e2d6;
+            border-radius: 8px;
+            padding: 3px;
+            gap: 2px;
+        }
+        .device-opt {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            color: #6b7280;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .device-opt:hover:not(:disabled) { background: #f5efe3; color: #1f2937; }
+        .device-opt.active {
+            background: #1f2937;
+            color: #fff;
+        }
+        .device-opt:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .device-opt .mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+        /* Hero byline ---------------------------------------------------- */
+        .byline {
+            font-family: 'Crimson Pro', serif;
+            font-size: 22px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #1f2937;
+            font-weight: 500;
+            margin: 0;
+        }
+        .byline-rule {
+            display: block;
+            width: 64px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #b45309 50%, transparent);
+            opacity: 0.6;
+        }
+
+        /* Paper-figure pipeline blocks */
+        .pipeline-figure {
+            margin: 24px 0 8px;
+            padding: 16px;
+            background: #ffffff;
+            border: 1px solid #e7e2d6;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .pipeline-figure img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto;
+            border-radius: 4px;
+        }
+        .pipeline-figure figcaption {
+            margin-top: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 12.5px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+        .pipeline-figure figcaption b { color: #1f2937; font-weight: 600; }
+        .pipeline-figure[data-variant="part1"] { border-color: #fed7aa; }
+        .pipeline-figure[data-variant="part2"] { border-color: #c7d2fe; }
+    </style>
+</head>
+
+<body>
+
+<!-- ============================================================ -->
+<!--  TOP BAR                                                      -->
+<!-- ============================================================ -->
+<nav class="ui w-full border-b border-rule/70 bg-paper/80 backdrop-blur-sm sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between text-sm">
+        <div class="flex items-center gap-2 text-ink-soft">
+            <span class="mono text-accent">[proj]</span>
+            <span class="font-medium">HiT-UNet × MM-HiT-UNet</span>
+        </div>
+        <div class="hidden sm:flex items-center gap-5 text-ink-mute">
+            <a href="#abstract" class="hover:text-ink">Abstract</a>
+            <a href="#method"   class="hover:text-ink">Method</a>
+            <a href="#demo"     class="hover:text-ink">Demo</a>
+            <a href="#results"  class="hover:text-ink">Results</a>
+            <a href="#bibtex"   class="hover:text-ink">BibTeX</a>
+        </div>
+    </div>
+</nav>
+
+
+<!-- ============================================================ -->
+<!--  HERO                                                         -->
+<!-- ============================================================ -->
+<header class="max-w-4xl mx-auto px-6 pt-20 pb-12 text-center">
+
+    <h1 class="font-serif text-[42px] sm:text-[56px] leading-[1.08] font-semibold text-ink tracking-tight">
+        From Visual-Only to Vision-Language<br class="hidden sm:block" />
+        Multimodal Video Summarization
+    </h1>
+
+    <!-- Single-author byline, set in small caps with a hairline divider so it
+         reads as a signature rather than a paper-style author list. -->
+    <div class="mt-10 flex flex-col items-center gap-2">
+        <span class="byline-rule" aria-hidden="true"></span>
+        <p class="byline">Saadman Sakib</p>
+        <span class="byline-rule" aria-hidden="true"></span>
+    </div>
+</header>
+
+
+<!-- ============================================================ -->
+<!--  VARIANT SWITCHER  (the headline feature)                     -->
+<!-- ============================================================ -->
+<section id="variant" class="max-w-4xl mx-auto px-6 pb-14">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Pick a model</div>
+        <h2 class="text-[28px] font-semibold mb-5">Which summarizer should we run?</h2>
+
+        <div id="variant-cards" class="grid sm:grid-cols-2 gap-5">
+
+            <!-- PART 1 -->
+            <button
+                class="variant-card active"
+                type="button"
+                data-variant="part1"
+                aria-pressed="true"
+            >
+                <div class="ribbon">Part 1 · Visual</div>
+                <div class="ui text-[11px] uppercase tracking-wider text-ink-mute mb-1">HiT-UNet</div>
+                <div class="font-serif text-[22px] font-semibold leading-tight text-ink">
+                    GoogleNet + ViT + Temporal U-Net
+                </div>
+                <p class="ui mt-3 text-[13px] text-ink-mute leading-relaxed">
+                    Visual-only pipeline from the Part 1 paper. 3-level Temporal U-Net
+                    with hierarchical shot-aware transformers.
+                </p>
+                <div class="ui mt-4 flex flex-wrap gap-2 text-[11px]">
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">F1 SumMe 65.8%</span>
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">~5–10 s / video</span>
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">best.pt</span>
+                </div>
+                <div class="watermark">1</div>
+            </button>
+
+            <!-- PART 2 -->
+            <button
+                class="variant-card"
+                type="button"
+                data-variant="part2"
+                aria-pressed="false"
+            >
+                <div class="ribbon">Part 2 · Multimodal</div>
+                <div class="ui text-[11px] uppercase tracking-wider text-ink-mute mb-1">MM-HiT-UNet</div>
+                <div class="font-serif text-[22px] font-semibold leading-tight text-ink">
+                    CLIP + BLIP-2 Concat + Temporal U-Net
+                </div>
+                <p class="ui mt-3 text-[13px] text-ink-mute leading-relaxed">
+                    Vision-language upgrade: BLIP-2 captions each frame, CLIP embeds
+                    both image and caption, the 1024-d concat feeds the temporal model.
+                </p>
+                <div class="ui mt-4 flex flex-wrap gap-2 text-[11px]">
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">F1 SumMe 59.27%</span>
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">28.27M params</span>
+                    <span class="mono px-2 py-0.5 bg-paper border border-rule rounded">best_part2.pt</span>
+                </div>
+                <div id="p2-unavailable" class="ui mt-3 text-[12px] text-accent hidden">
+                    ⚠︎ best_part2.pt not found on the server — place it in <span class="mono">backend/models/</span> and restart.
+                </div>
+                <div class="watermark">2</div>
+            </button>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  ABSTRACT (dynamic per variant)                               -->
+<!-- ============================================================ -->
+<section id="abstract" class="max-w-3xl mx-auto px-6 pb-14">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Abstract</div>
+
+        <div id="abstract-part1" class="variant-content swap-in">
+            <div class="ui mb-3"><span class="chip chip-p1"><span class="dot"></span>HiT-UNet · Visual</span></div>
+
+            <div class="ui mb-4 p-4 rounded-md bg-orange-50/50 border border-orange-200 text-[13px] text-ink-soft leading-relaxed">
+                <div class="font-semibold text-ink">
+                    HiT-UNet: Hierarchical Temporal U-Net with Shot-Aware Transformers for Supervised Video Summarization
+                </div>
+                <div class="mt-1">
+                    Saadman Sakib
+                </div>
+                <div class="text-ink-mute">
+                    <sup>1</sup>Department of Computer Science and Engineering, Chittagong University of Engineering &amp; Technology (CUET), Chattogram-4349, Bangladesh
+                </div>
+                <div class="mt-2">
+                    <span class="text-ink-mute">Correspondence:</span>
+                    Saadman Sakib (<a class="link" href="mailto:saadmansakib110442@gmail.com">saadmansakib110442@gmail.com</a>)
+                </div>
+                <div class="mt-2 text-ink-mute">
+                    <span class="font-semibold text-ink">Keywords:</span>
+                    Video summarization &nbsp;|&nbsp; HiT-UNet &nbsp;|&nbsp; Temporal U-Net &nbsp;|&nbsp; Hierarchical transformer &nbsp;|&nbsp; Shot-aware attention &nbsp;|&nbsp; ViT encoder
+                </div>
+            </div>
+
+            <p class="text-ink-soft leading-[1.7]">
+                Video summarization aims to generate a compact video skim that preserves the most informative content while avoiding redundancy. Although recent transformer-based methods improve long-range temporal modeling, many operate at a single temporal scale or ignore shot-level structure, limiting temporal coherence and generalization. We propose <b>HiT-UNet</b>, a supervised video summarization framework that integrates a pretrained ViT as a feature-level temporal encoder, a multi-scale 1D Temporal U-Net backbone for hierarchical temporal modeling, and a hierarchical shot-aware transformer scoring head to capture inter-shot context for refined frame importance prediction. Frame-level scores are aggregated into shot utilities under a fixed-length budget, while training employs a weighted focal loss to address severe class imbalance. Under the canonical protocol, HiT-UNet achieves F1-scores of <b class="text-accent">65.8%</b> on SumMe and <b class="text-accent">79.92%</b> on TVSum, outperforming prior work while maintaining strong diversity (64.98% and 48.68%).
+            </p>
+        </div>
+
+        <div id="abstract-part2" class="variant-content hidden swap-in">
+            <div class="ui mb-3"><span class="chip chip-p2"><span class="dot"></span>MM-HiT-UNet · Vision-Language</span></div>
+
+            <div class="ui mb-4 p-4 rounded-md bg-indigo-50/50 border border-indigo-200 text-[13px] text-ink-soft leading-relaxed">
+                <div class="font-semibold text-ink">
+                    Multimodal Video Summarization Using Vision-Language Embeddings and Hierarchical Temporal Modeling
+                </div>
+                <div class="mt-1">
+                    Saadman Sakib &nbsp;·&nbsp; Kaushik Deb
+                </div>
+                <div class="text-ink-mute">
+                    <sup>1</sup>Department of Computer Science and Engineering, Chittagong University of Engineering &amp; Technology (CUET), Chattogram-4349, Bangladesh
+                </div>
+                <div class="mt-2">
+                    <span class="text-ink-mute">Correspondence:</span>
+                    Kaushik Deb (<a class="link" href="mailto:debkaushik99@cuet.ac.bd">debkaushik99@cuet.ac.bd</a>)
+                </div>
+                <div class="mt-2 text-ink-mute">
+                    <span class="font-semibold text-ink">Keywords:</span>
+                    Video summarization &nbsp;|&nbsp; Multimodal fusion &nbsp;|&nbsp; CLIP &nbsp;|&nbsp; BLIP-2 &nbsp;|&nbsp; Temporal U-Net &nbsp;|&nbsp; Hierarchical transformer &nbsp;|&nbsp; Vision-language models
+                </div>
+            </div>
+
+            <p class="text-ink-soft leading-[1.7]">
+                Video summarization aims to produce concise representations of videos by selecting the most informative frames or shots. Existing methods predominantly rely on unimodal visual features extracted from convolutional neural networks, overlooking the rich semantic information that natural language can provide. In this paper, we present an integrated multimodal video summarization framework that makes two tightly coupled contributions. Initially, we construct a semantically enriched multimodal dataset by augmenting standard video summarization benchmarks (SumMe, TVSum, OVP, and YouTube) with BLIP-2-generated frame-level captions and CLIP-based aligned visual–textual embeddings, producing four feature variants—Image-only, Text-only, Averaged fusion, and Concatenated fusion—for systematic analysis of modality contributions. We validate the dataset through cross-modal retrieval, similarity gap analysis, Spearman complementarity correlation, and caption quality diagnostics, confirming that the generated captions are semantically meaningful and that the two modalities provide complementary information (average Spearman ρ ≈ 0.53). Finally, we develop a multi-scale temporal summarization architecture comprising a U-Net-based temporal backbone and a hierarchical transformer-style scoring head. Our best configuration achieves F1-scores of <b class="text-accent2">59.27%</b> on SumMe, competitive with recent state-of-the-art methods while maintaining only <b>28.27M parameters</b> with linear computational scaling.
+            </p>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  METHOD (dynamic per variant)                                 -->
+<!-- ============================================================ -->
+<section id="method" class="max-w-3xl mx-auto px-6 pb-14">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Method</div>
+        <h2 class="text-[28px] font-semibold mb-4">Pipeline</h2>
+
+        <!-- PART 1 PIPELINE -->
+        <div id="method-part1" class="variant-content swap-in">
+            <p class="text-ink-soft">
+                The HiT-UNet pipeline runs in five stages and remains the default for quick, visual-only summarization.
+            </p>
+            <figure class="pipeline-figure" data-variant="part1">
+                <img src="/static/assets/pipeline-part1.png"
+                     alt="HiT-UNet pipeline figure from the Part 1 paper">
+                <figcaption>
+                    <b>Figure.</b> HiT-UNet architecture: ViT-based feature encoder, multi-scale 1D
+                    Temporal U-Net backbone, and hierarchical shot-aware transformer scoring head.
+                </figcaption>
+            </figure>
+            <ol class="mt-8 space-y-3 text-ink-soft">
+                <li><span class="ui text-[13px] font-semibold text-accent uppercase tracking-wider">1. Features.</span> GoogLeNet pool5 activations (1024-d, L2-normalized) on every 15th frame.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent uppercase tracking-wider">2. Shot detection.</span> KTS <em>cpd_auto</em> segments the sequence into shots.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent uppercase tracking-wider">3. Encoder.</span> Per-frame features are projected to ViT dimensionality and processed by pretrained ViT-Base blocks with sinusoidal position encodings.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent uppercase tracking-wider">4. Backbone.</span> A 3-level Temporal U-Net with intra-level self-attention captures multi-scale temporal context.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent uppercase tracking-wider">5. Head.</span> Shot-level and frame-level transformers refine per-frame importance; a knapsack solver respects the 20% duration budget.</li>
+            </ol>
+        </div>
+
+        <!-- PART 2 PIPELINE -->
+        <div id="method-part2" class="variant-content hidden swap-in">
+            <p class="text-ink-soft">
+                MM-HiT-UNet replaces the visual-only feature with a vision-language feature. GoogLeNet is still used, but only to drive KTS (the paper's GoogLeNet-CPS protocol).
+            </p>
+            <figure class="pipeline-figure" data-variant="part2">
+                <img src="/static/assets/pipeline-part2.png"
+                     alt="MM-HiT-UNet pipeline figure from the Part 2 paper">
+                <figcaption>
+                    <b>Figure.</b> MM-HiT-UNet architecture: BLIP-2 captioner + CLIP image/text
+                    encoders produce a 1024-d Concat feature that drives the temporal model.
+                </figcaption>
+            </figure>
+            <ol class="mt-8 space-y-3 text-ink-soft">
+                <li><span class="ui text-[13px] font-semibold text-accent2 uppercase tracking-wider">1. Captioning.</span> BLIP-2 (opt-2.7b) generates a short caption per sampled frame.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent2 uppercase tracking-wider">2. Multimodal feature.</span> CLIP ViT-B/32 encodes image (512-d) and caption (512-d). Both are L2-normalised and concatenated to a <b>1024-d</b> vector.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent2 uppercase tracking-wider">3. Segmentation.</span> GoogLeNet pool5 + KTS yields the shot boundaries (per-paper GoogLeNet-CPS protocol).</li>
+                <li><span class="ui text-[13px] font-semibold text-accent2 uppercase tracking-wider">4. Backbone.</span> 2-level U-Net, 192 base channels, dropout 0.50. The ViT encoder is <em>disabled</em> here — per the ablation, pretrained image ViT introduces a domain mismatch on CLIP features.</li>
+                <li><span class="ui text-[13px] font-semibold text-accent2 uppercase tracking-wider">5. Head.</span> 2-head hierarchical transformer, 3 shot-level + 3 frame-level layers, FF dim 1024, dropout 0.12. Same knapsack at 20%.</li>
+            </ol>
+            <p class="ui mt-4 text-[13px] text-ink-mute">
+                First Part 2 request downloads BLIP-2 (~12 GB) from HuggingFace. It's cached from then on.
+            </p>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  LIVE DEMO                                                    -->
+<!-- ============================================================ -->
+<section id="demo" class="max-w-4xl mx-auto px-6 pb-14">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Live Demo</div>
+        <h2 class="text-[28px] font-semibold mb-2">Try it yourself</h2>
+        <p class="text-ink-soft mb-4">
+            Upload a short video (≤ 200 MB, mp4 / mov / mkv / webm). The selected model will run end-to-end and return a keyshot summary.
+        </p>
+
+        <!-- Small variant indicator (reflects the switcher above) -->
+        <div id="demo-variant-label" class="ui mb-6">
+            <span class="chip chip-p1"><span class="dot"></span>Running: HiT-UNet (Part 1, visual-only)</span>
+        </div>
+
+        <!-- DEVICE PICKER (CPU / GPU) -->
+        <div id="device-picker" class="ui mb-4 flex items-center justify-between flex-wrap gap-3">
+            <div class="text-[13px] text-ink-mute">
+                <span class="uppercase tracking-wider text-accent text-[11px] mr-2">Compute</span>
+                Pick where the model runs. GPU is much faster for Part 2.
+            </div>
+            <div role="radiogroup" aria-label="Compute device" class="device-toggle">
+                <button type="button" class="device-opt active" data-device="auto" aria-pressed="true">
+                    <span class="mono">auto</span>
+                </button>
+                <button type="button" class="device-opt" data-device="cpu" aria-pressed="false">
+                    CPU
+                </button>
+                <button type="button" class="device-opt" data-device="cuda" aria-pressed="false" id="device-gpu-btn" disabled>
+                    GPU <span id="device-gpu-name" class="text-[11px] text-ink-mute ml-1"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- UPLOAD ZONE -->
+        <div id="upload-section">
+            <div id="dropzone" class="dropzone rounded-md p-10 text-center cursor-pointer">
+                <input id="file-input" type="file" accept="video/*" class="hidden" />
+                <svg class="mx-auto text-ink-mute" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <div class="ui mt-3 text-ink-soft font-medium">Drop a video here, or click to choose</div>
+                <div class="ui mt-1 text-[13px] text-ink-mute">mp4 · mov · mkv · webm · avi · m4v</div>
+            </div>
+        </div>
+
+        <!-- PROGRESS -->
+        <div id="progress-section" class="hidden mt-8 fade-in">
+            <div class="flex items-center justify-between mb-3">
+                <div class="ui font-medium text-ink-soft" id="progress-message">Uploading…</div>
+                <div class="ui text-[13px] text-ink-mute mono" id="progress-percent">0%</div>
+            </div>
+            <div id="progress-bar" class="bar"><div id="progress-fill" style="width:0%"></div></div>
+
+            <div class="flex flex-wrap gap-2 mt-4" id="stage-pills"></div>
+
+            <div class="ui mt-4 text-[13px] text-ink-mute" id="progress-meta"></div>
+
+            <!-- Part 2 only: live caption stream -->
+            <div id="captions-wrap" class="hidden mt-5">
+                <div class="ui text-[11px] uppercase tracking-wider text-accent2 mb-2">Live BLIP-2 captions</div>
+                <div id="captions-feed" class="caption-feed ui text-[14px]"></div>
+            </div>
+        </div>
+
+        <!-- ERROR -->
+        <div id="error-section" class="hidden mt-8 p-4 rounded-md bg-red-50 border border-red-200 text-red-800 ui text-sm fade-in">
+            <strong>Something went wrong.</strong>
+            <div id="error-message" class="mono mt-1 text-[12px]"></div>
+            <button id="reset-after-error" class="btn btn-ghost mt-3">Try another video</button>
+        </div>
+
+        <!-- RESULTS -->
+        <div id="results-section" class="hidden mt-10 fade-in">
+
+            <!-- Model-used badge -->
+            <div id="result-variant-badge" class="ui mb-5"></div>
+
+            <!-- Stats strip -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+                <div class="ui p-4 rounded-md bg-white border border-rule/80">
+                    <div class="text-[11px] uppercase tracking-wider text-ink-mute">Original</div>
+                    <div class="text-[22px] font-semibold mono text-ink mt-1" id="stat-duration">—</div>
+                </div>
+                <div class="ui p-4 rounded-md bg-white border border-rule/80">
+                    <div class="text-[11px] uppercase tracking-wider text-ink-mute">Summary</div>
+                    <div class="text-[22px] font-semibold mono text-ink mt-1" id="stat-summary-duration">—</div>
+                </div>
+                <div class="ui p-4 rounded-md bg-white border border-rule/80">
+                    <div class="text-[11px] uppercase tracking-wider text-ink-mute">Compression</div>
+                    <div class="text-[22px] font-semibold mono text-accent mt-1" id="stat-ratio">—</div>
+                </div>
+                <div class="ui p-4 rounded-md bg-white border border-rule/80">
+                    <div class="text-[11px] uppercase tracking-wider text-ink-mute">Shots detected</div>
+                    <div class="text-[22px] font-semibold mono text-ink mt-1" id="stat-shots">—</div>
+                </div>
+            </div>
+
+            <!-- Video comparison -->
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="video-card">
+                    <div class="ui flex items-center justify-between mb-2">
+                        <div class="font-semibold text-ink">Original</div>
+                        <div class="text-[11px] uppercase tracking-wider text-ink-mute">input</div>
+                    </div>
+                    <video id="video-original" controls preload="metadata"></video>
+                </div>
+                <div class="video-card">
+                    <div class="ui flex items-center justify-between mb-2">
+                        <div class="font-semibold text-accent" id="summary-title">AI Summary</div>
+                        <div class="text-[11px] uppercase tracking-wider text-ink-mute">output</div>
+                    </div>
+                    <video id="video-summary" controls preload="metadata"></video>
+                </div>
+            </div>
+
+            <!-- Part 2: sample captions gallery -->
+            <div id="sample-captions-wrap" class="hidden mt-6">
+                <div class="ui text-[11px] uppercase tracking-wider text-accent2 mb-2">Sample BLIP-2 captions from this video</div>
+                <div id="sample-captions" class="ui flex flex-wrap gap-2"></div>
+            </div>
+
+            <!-- ================================================== -->
+            <!-- Part 2: BLIP-2 text feature visualisations          -->
+            <!-- ================================================== -->
+            <div id="viz-part2-wrap" class="hidden mt-8">
+                <div class="ui mb-4 flex items-end justify-between flex-wrap gap-3">
+                    <div>
+                        <div class="ui text-xs uppercase tracking-widest text-accent2">Optional</div>
+                        <h3 class="text-[22px] font-semibold text-ink">Caption visualisations</h3>
+                        <p class="ui text-[13px] text-ink-mute mt-1">
+                            BLIP and CLIP-text features were captured for this run but are not displayed by default. Click below to inspect them.
+                        </p>
+                    </div>
+                    <button id="viz-toggle" type="button" class="btn btn-primary text-[12px]">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/>
+                        </svg>
+                        <span id="viz-toggle-label">Show caption visualisations</span>
+                    </button>
+                </div>
+
+                <div id="viz-part2-body" class="hidden">
+                <div class="grid md:grid-cols-2 gap-4">
+                    <!-- WORD CLOUD -->
+                    <div class="viz-panel">
+                        <div class="viz-title">BLIP-2 Vocabulary Cloud</div>
+                        <div class="viz-subtitle">Dominant words across all captions</div>
+                        <div id="wordcloud"></div>
+                        <div class="viz-caption">
+                            Font size ∝ frequency across every sampled frame's BLIP-2 caption (stop-words removed). Echoes Figure 8 of the paper.
+                        </div>
+                    </div>
+
+                    <!-- 2D SCATTER OF CLIP-TEXT EMBEDDINGS -->
+                    <div class="viz-panel">
+                        <div class="viz-title">CLIP-Text Embedding Space</div>
+                        <div class="viz-subtitle">Caption semantics (PCA → 2D)</div>
+                        <svg id="scatter" viewBox="0 0 400 260" preserveAspectRatio="xMidYMid meet"></svg>
+                        <div class="viz-caption flex items-center gap-4">
+                            <span class="flex items-center gap-1">
+                                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#1d4ed8"/></svg>
+                                selected into summary
+                            </span>
+                            <span class="flex items-center gap-1">
+                                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3" fill="#cbd5e1"/></svg>
+                                not selected
+                            </span>
+                            <span id="scatter-variance" class="ml-auto mono text-[11px] text-ink-mute"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SHOT RIBBON TIMELINE -->
+                <div class="viz-panel mt-4">
+                    <div class="viz-title">Caption Timeline by Shot</div>
+                    <div class="viz-subtitle">One caption per shot, selected shots highlighted</div>
+                    <svg id="shot-ribbon" viewBox="0 0 1000 80" preserveAspectRatio="none"></svg>
+                    <div id="shot-ribbon-list" class="mt-3 text-[13px] text-ink-soft space-y-1 max-h-40 overflow-y-auto pr-2"></div>
+                    <div class="viz-caption">
+                        Each bar is a shot. Bar colour = whether the shot's frames were included in the 20 % summary budget.
+                    </div>
+                </div>
+                </div><!-- /viz-part2-body -->
+            </div>
+
+            <!-- Actions -->
+            <div class="ui flex flex-wrap gap-3 mt-6">
+                <a id="download-btn" class="btn btn-primary" href="#" download>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download summary
+                </a>
+                <button id="reset-btn" class="btn btn-ghost">Try another video</button>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  RESULTS (numerical)                                          -->
+<!-- ============================================================ -->
+<section id="results" class="max-w-3xl mx-auto px-6 pb-14">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Results</div>
+        <h2 class="text-[28px] font-semibold mb-5">F1-score on canonical splits</h2>
+
+        <div class="ui overflow-x-auto">
+            <table class="w-full text-[14px] border-collapse">
+                <thead>
+                <tr class="border-b border-ink/30">
+                    <th class="text-left py-2 pr-4 font-semibold text-ink">Method</th>
+                    <th class="text-right py-2 px-4 font-semibold text-ink">SumMe</th>
+                    <th class="text-right py-2 pl-4 font-semibold text-ink">TVSum</th>
+                </tr>
+                </thead>
+                <tbody class="text-ink-soft">
+                <tr class="border-b border-rule"><td class="py-2 pr-4">dppLSTM</td><td class="text-right mono px-4">38.6</td><td class="text-right mono pl-4">54.7</td></tr>
+                <tr class="border-b border-rule"><td class="py-2 pr-4">SUM-GAN</td><td class="text-right mono px-4">41.7</td><td class="text-right mono pl-4">56.3</td></tr>
+                <tr class="border-b border-rule"><td class="py-2 pr-4">VASNet</td><td class="text-right mono px-4">49.7</td><td class="text-right mono pl-4">61.4</td></tr>
+                <tr class="border-b border-rule"><td class="py-2 pr-4">DSNet</td><td class="text-right mono px-4">50.2</td><td class="text-right mono pl-4">62.1</td></tr>
+                <tr class="border-b border-rule"><td class="py-2 pr-4">PGL-SUM</td><td class="text-right mono px-4">55.6</td><td class="text-right mono pl-4">61.0</td></tr>
+                <tr class="border-b border-rule"><td class="py-2 pr-4">DBLSTM (visual)</td><td class="text-right mono px-4">58.4</td><td class="text-right mono pl-4">65.3</td></tr>
+                <tr class="bg-indigo-50/50">
+                    <td class="py-3 pr-4 font-semibold text-accent2">
+                        <span class="chip chip-p2"><span class="dot"></span>MM-HiT-UNet</span>
+                    </td>
+                    <td class="text-right mono px-4 font-semibold text-accent2">59.27</td>
+                    <td class="text-right mono pl-4 font-semibold text-accent2">53.39</td>
+                </tr>
+                <tr class="bg-orange-50/50">
+                    <td class="py-3 pr-4 font-semibold text-accent">
+                        <span class="chip chip-p1"><span class="dot"></span>HiT-UNet (ours)</span>
+                    </td>
+                    <td class="text-right mono px-4 font-semibold text-accent">65.8</td>
+                    <td class="text-right mono pl-4 font-semibold text-accent">79.92</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="ui mt-4 text-[12px] text-ink-mute">
+            MM-HiT-UNet uses a semantically richer but smaller feature (1024-d CLIP-BLIP2 concat) and only 28.27M params. On TVSum's longer, visually-driven videos, visual features remain competitive; on SumMe's shorter, event-centric clips, multimodal features catch conceptual importance that pure pixels miss.
+        </p>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  BIBTEX (dynamic per variant)                                 -->
+<!-- ============================================================ -->
+<section id="bibtex" class="max-w-3xl mx-auto px-6 pb-16">
+    <div class="hr-soft pt-10">
+        <div class="ui text-xs uppercase tracking-widest text-accent mb-3">Citation</div>
+        <h2 class="text-[28px] font-semibold mb-4">BibTeX</h2>
+
+        <div class="ui mb-3 flex gap-2">
+            <button class="btn btn-ghost bibtex-tab active" data-tab="part1" type="button">Part 1 · HiT-UNet</button>
+            <button class="btn btn-ghost bibtex-tab" data-tab="part2" type="button">Part 2 · MM-HiT-UNet</button>
+        </div>
+
+        <pre id="bibtex-part1" class="bibtex bibtex-body">@article{sakib2026hitunet,
+  title   = {HiT-UNet: Multi-Scale Temporal U-Net with Hierarchical Shot-Aware Transformers for Video Summarization},
+  author  = {Sakib, Saadman and Mahmud, Tanjim and Andersson, Karl and Deb, Kaushik},
+  journal = {Under Review},
+  year    = {2026},
+}</pre>
+
+        <pre id="bibtex-part2" class="bibtex bibtex-body hidden">@article{sakib2026multimodal,
+  title   = {Multimodal Video Summarization Using Vision-Language Embeddings and Hierarchical Temporal Modeling},
+  author  = {Sakib, Saadman and Deb, Kaushik},
+  journal = {Applied AI Letters},
+  year    = {2026},
+}</pre>
+
+        <div class="flex items-center gap-3 mt-3">
+            <button id="copy-bibtex" class="btn btn-ghost" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy to clipboard
+            </button>
+            <span id="copy-feedback" class="ui text-[13px] text-ink-mute"></span>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!--  FOOTER                                                       -->
+<!-- ============================================================ -->
+<footer class="border-t border-rule/80 bg-white/40">
+    <div class="max-w-5xl mx-auto px-6 py-8 ui text-[13px] text-ink-mute flex flex-wrap items-center justify-between gap-3">
+        <div>© 2026 · Saadman Sakib, CUET · Project page for HiT-UNet &amp; MM-HiT-UNet.</div>
+        <div class="mono flex items-center gap-4">
+            <span class="flex items-center gap-1">
+                <span id="health-p1-dot" class="inline-block w-2 h-2 rounded-full bg-ink-mute"></span>
+                <span id="health-p1-text">part 1…</span>
+            </span>
+            <span class="flex items-center gap-1">
+                <span id="health-p2-dot" class="inline-block w-2 h-2 rounded-full bg-ink-mute"></span>
+                <span id="health-p2-text">part 2…</span>
+            </span>
+            <span id="health-device" class="text-ink-mute">·</span>
+        </div>
+    </div>
+</footer>
+
+<script src="/static/app.js?v=5"></script>
+
+</body>
+</html>
